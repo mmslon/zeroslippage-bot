@@ -26,3 +26,4 @@ export * from "./indicators/index.js";
 export * from "./strategy-runner/context.js";
 export * from "./strategy-runner/events.js";
 export * from "./schemas/index.js";
+export * from "./lp-bot/index.js";

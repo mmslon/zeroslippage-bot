@@ -1,4 +1,4 @@
-import type { IGridBotLevel } from "@opentrader/types";
+import type { IGridBotLevel, IOrderCandidate, IPlaceOrderRequest } from "@opentrader/types";
 import { XOrderStatus } from "@opentrader/types";
 
 /**
@@ -15,28 +15,28 @@ export function computeOrderLevelsFromCurrentPrice(
   initialSpread: number,
   stepSpread: number,
   currentAssetPrice: number,
-): IGridBotLevel[] {
-  const gridLevels: IGridBotLevel[] = [];
+): IOrderCandidate[] {
+  const orders: IOrderCandidate[] = [];
 
   for (let i = 0; i < orderLevels; i++) {
     const quantity = minOrderAmount;
     const sellPrice = currentAssetPrice + initialSpread + i * stepSpread;
     const buyPrice = currentAssetPrice - initialSpread - i * stepSpread;
 
-    const gridLevel: IGridBotLevel = {
-      buy: {
-        price: buyPrice,
-        quantity,
-        status: XOrderStatus.Idle,
-      },
-      sell: {
-        price: sellPrice,
-        quantity,
-        status: XOrderStatus.Idle,
-      },
-    };
-    gridLevels.push(gridLevel);
+    orders.push({
+      side: "Sell",
+      type: "Limit",
+      price: sellPrice,
+      quantity,
+    });
+
+    orders.push({
+      side: "Buy",
+      type: "Limit",
+      price: buyPrice,
+      quantity,
+    });
   }
 
-  return gridLevels;
+  return orders;
 }

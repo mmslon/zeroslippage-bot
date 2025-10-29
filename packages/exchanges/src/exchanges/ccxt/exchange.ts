@@ -77,13 +77,11 @@ export class CCXTExchange implements IExchange {
       ? {
           apiKey: credentials.apiKey,
           secret: credentials.secretKey,
-          // password: credentials.password,
-          // memo: credentials.memo || credentials.password,
+          password: credentials.password,
+          memo: credentials.memo || credentials.password,
           uid: "Keylabs02",
         }
       : undefined;
-
-    console.log(ccxtCredentials);
 
     const ccxtClassName = exchangeCodeMapCCXT[exchangeCode];
 
