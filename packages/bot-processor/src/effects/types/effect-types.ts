@@ -18,6 +18,7 @@ export const USE_INDICATORS = "USE_INDICATORS";
 export const USE_MARKET = "USE_MARKET";
 export const USE_CANDLE = "USE_CANDLE";
 export const USE_RSI_INDICATOR = "USE_RSI_INDICATOR";
+export const USE_PRICE_SOURCE = "USE_PRICE_SOURCE";
 
 export type EffectType =
   | typeof ALL
@@ -38,4 +39,5 @@ export type EffectType =
   | typeof USE_INDICATORS
   | typeof USE_MARKET
   | typeof USE_CANDLE
-  | typeof USE_RSI_INDICATOR;
+  | typeof USE_RSI_INDICATOR
+  | typeof USE_PRICE_SOURCE;

@@ -27,6 +27,7 @@ import {
   GET_OPEN_TRADES,
   USE_DCA,
   USE_INDICATOR,
+  USE_PRICE_SOURCE,
 } from "./effects/types/index.js";
 import {
   buy,
@@ -68,6 +69,8 @@ import {
   USE_CANDLE,
   USE_RSI_INDICATOR,
 } from "./effects/index.js";
+import { usePriceSource } from "./effects/useSource.js";
+import { exchangeProvider } from "@opentrader/exchanges";
 
 export const effectRunnerMap: Record<
   EffectType,
@@ -92,6 +95,7 @@ export const effectRunnerMap: Record<
   [USE_MARKET]: runUseMarketEffect,
   [USE_CANDLE]: runUseCandleEffect,
   [USE_RSI_INDICATOR]: runUseRsiIndicatorEffect,
+  [USE_PRICE_SOURCE]: runUsePriceSourceEffect,
 };
 
 export async function runAllEffect(effect: ReturnType<typeof all>, ctx: TBotContext<any>): Promise<Array<unknown>> {
@@ -350,6 +354,12 @@ async function runUseExchangeEffect(effect: ReturnType<typeof useExchange>, ctx:
 
 async function runUseMarketEffect(_effect: ReturnType<typeof useMarket>, ctx: TBotContext<any>) {
   return ctx.market;
+}
+
+async function runUsePriceSourceEffect(effect: ReturnType<typeof usePriceSource>, _ctx: TBotContext<any>) {
+  const { exchange, pair } = effect.payload;
+
+  return exchangeProvider.fromCode(exchange as any, false).getMarketPrice({ symbol: pair });
 }
 
 async function runUseCandleEffect(effect: ReturnType<typeof useCandle>, ctx: TBotContext<any>) {
