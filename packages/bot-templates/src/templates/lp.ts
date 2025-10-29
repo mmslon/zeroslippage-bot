@@ -53,52 +53,57 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
 
   let orders = asks.concat(bids);
 
-  // if (ctx.event === StrategyEventType.onInterval) {
-  //   const { price: markPrice }: IGetMarketPriceResponse = yield exchange.getMarketPrice({
-  //     symbol,
-  //   });
-  //   price = markPrice;
-  //   logger.info(`[LP] Updating orders on ${symbol} pair at price ${price} ${quoteCurrency}`);
+  if (ctx.event === StrategyEventType.onInterval) {
+    logger.info(`[LP] Updating orders on ${symbol} pair at price ${price} ${quoteCurrency}`);
+    logger.info(`[LP] Closing existing orders`);
 
-  //   logger.info(`[LP] Closing existing orders`);
+    yield cancelAllTrades();
 
-  //   for (const [index, _grid] of gridLevels.entries()) {
-  //     yield cancelSmartTrade(`${index}`);
-  //   }
+    asks = computeOrderLevelsFromCurrentPrice(
+      bot.settings.asks.levels,
+      bot.settings.asks.minOrderAmount,
+      bot.settings.asks.maxOrderAmount,
+      bot.settings.initialSpread,
+      bot.settings.asks.levelSpread,
+      priceFromSource.price,
+      bot.settings.pricePrecision,
+    );
 
-  //   gridLevels = computeOrderLevelsFromCurrentPrice(
-  //     bot.settings.orderLevels,
-  //     bot.settings.minOrderAmount,
-  //     bot.settings.maxOrderAmount,
-  //     bot.settings.initialSpread,
-  //     bot.settings.stepSpread,
-  //     price,
-  //   );
+    bids = computeOrderLevelsFromCurrentPrice(
+      bot.settings.bids.levels,
+      bot.settings.bids.minOrderAmount,
+      bot.settings.bids.maxOrderAmount,
+      bot.settings.initialSpread,
+      bot.settings.bids.levelSpread,
+      priceFromSource.price,
+      bot.settings.pricePrecision,
+    );
 
-  //   logger.info(`[LP] Placing new orders`);
+    orders = asks.concat(bids);
 
-  //   for (const [index, grid] of gridLevels.entries()) {
-  //     const smartTrade: SmartTradeService = yield useSmartTrade(
-  //       {
-  //         entry: {
-  //           type: grid.type,
-  //           side: grid.side,
-  //           price: grid.price,
-  //           status: "Idle",
-  //         },
-  //         quantity: grid.quantity,
-  //       },
-  //       `${index}`,
-  //     );
+    logger.info(`[LP] Placing new orders`);
 
-  //     if (smartTrade.isCompleted()) {
-  //       yield smartTrade.replace();
-  //     }
-  //   }
-  // }
+    for (const [index, grid] of orders.entries()) {
+      const smartTrade: SmartTradeService = yield useSmartTrade(
+        {
+          entry: {
+            type: grid.type,
+            side: grid.side,
+            price: grid.price,
+            status: "Idle",
+          },
+          quantity: grid.quantity,
+        },
+        `${index}`,
+      );
+
+      if (smartTrade.isCompleted()) {
+        yield smartTrade.replace();
+      }
+    }
+  }
 
   if (onStop) {
-    console.log("stop");
     yield cancelAllTrades();
 
     return;

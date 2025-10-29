@@ -35,8 +35,6 @@ export function computeOrderLevelsFromCurrentPrice(
     const sellPrice = currentAssetPrice * (1 + spreadDecimal);
     const buyPrice = currentAssetPrice * (1 - spreadDecimal);
 
-    console.log(sellPrice, buyPrice);
-
     // Round prices to specified precision
     const roundedSellPrice = Number(sellPrice.toFixed(pricePrecision));
     const roundedBuyPrice = Number(buyPrice.toFixed(pricePrecision));
