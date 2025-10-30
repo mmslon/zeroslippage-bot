@@ -172,6 +172,76 @@ function* checkBalances(exchange: IExchange, symbol: string, orders: OrderLevel[
 }
 
 /**
+ * Calculates and logs the sum of all orders in the order book between bot's best bid and ask.
+ */
+function* analyzeOrderBookDepth(exchange: IExchange, symbol: string, orders: OrderLevel[]) {
+  const { quoteCurrency } = decomposeSymbol(symbol);
+
+  // Find bot's best bid and ask prices
+  const botBids = orders.filter((o) => o.side === "Buy");
+  const botAsks = orders.filter((o) => o.side === "Sell");
+
+  if (botBids.length === 0 || botAsks.length === 0) {
+    logger.info("[LP] No bid or ask orders to analyze");
+    return;
+  }
+
+  const bestBid = Math.max(...botBids.map((o) => o.price));
+  const bestAsk = Math.min(...botAsks.map((o) => o.price));
+
+  // Fetch order book
+  const orderBook = yield exchange.getOrderbook(symbol);
+
+  // Calculate total volume between best bid and ask
+  let totalBidVolume = 0; // in base currency
+  let totalBidValue = 0; // in quote currency
+  let bidOrderCount = 0;
+
+  for (const bid of orderBook.bids) {
+    if (bid.price >= bestBid && bid.price <= bestAsk) {
+      totalBidVolume += bid.quantity;
+      totalBidValue += bid.price * bid.quantity;
+      bidOrderCount++;
+    }
+  }
+
+  let totalAskVolume = 0; // in base currency
+  let totalAskValue = 0; // in quote currency
+  let askOrderCount = 0;
+
+  for (const ask of orderBook.asks) {
+    if (ask.price >= bestBid && ask.price <= bestAsk) {
+      totalAskVolume += ask.quantity;
+      totalAskValue += ask.price * ask.quantity;
+      askOrderCount++;
+    }
+  }
+
+  const totalVolume = totalBidVolume + totalAskVolume;
+  const totalValue = totalBidValue + totalAskValue;
+
+  logger.info(`[LP] Order book depth between ${bestBid.toFixed(2)} and ${bestAsk.toFixed(2)} ${quoteCurrency}:`);
+  logger.info(
+    `[LP]   Bids: ${bidOrderCount} orders, ${totalBidVolume} volume, ${totalBidValue} ${quoteCurrency} value`,
+  );
+  logger.info(
+    `[LP]   Asks: ${askOrderCount} orders, ${totalAskVolume} volume, ${totalAskValue} ${quoteCurrency} value`,
+  );
+  logger.info(
+    `[LP]   Total: ${bidOrderCount + askOrderCount} orders, ${totalVolume} volume, ${totalValue} ${quoteCurrency} value`,
+  );
+
+  return {
+    bestBid,
+    bestAsk,
+    spread: bestAsk - bestBid,
+    bids: { count: bidOrderCount, volume: totalBidVolume, value: totalBidValue },
+    asks: { count: askOrderCount, volume: totalAskVolume, value: totalAskValue },
+    total: { count: bidOrderCount + askOrderCount, volume: totalVolume, value: totalValue },
+  };
+}
+
+/**
  * Liquidity provider bot template.
  */
 export function* lpBot(ctx: TBotContext<LPBotConfig>) {
@@ -201,6 +271,9 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
   if (ctx.event === StrategyEventType.onInterval) {
     // Check balances including locked tokens
     yield* checkBalances(exchange, symbol, orders);
+
+    // Analyze order book depth between bot's best bid and ask
+    yield* analyzeOrderBookDepth(exchange, symbol, orders);
 
     const indicesToReplace = getRandomOrderIndices(regularOrderCount, supportOrderIndices);
     const percentageToReplace = ((indicesToReplace.length / regularOrderCount) * 100).toFixed(1);
