@@ -20,7 +20,8 @@ export const ZSupportOrderSchema = z.object({
 });
 
 export const ZLPBotSettings = z.object({
-  initialSpread: z.number(),
+  maxSpread: z.number(),
+  useMaxSpread: z.boolean(),
   pricePrecision: z.number().optional().default(2),
   exchangeSource: ZExchangeSourceSchema,
   supportBid: ZSupportOrderSchema.optional(),
