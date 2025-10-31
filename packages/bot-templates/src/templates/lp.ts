@@ -393,6 +393,12 @@ function* analyzeOrderBookDepth(exchange: IExchange, symbol: string, orders: Ord
   // Fetch order book
   const orderBook = yield exchange.getOrderbook(symbol);
 
+  // Check if order book has valid data
+  if (!orderBook || !orderBook.bids || !orderBook.asks) {
+    logger.warn("[LP] Order book is invalid, skipping depth analysis");
+    return;
+  }
+
   // Calculate total volume between best bid and ask
   let totalBidVolume = 0; // in base currency
   let totalBidValue = 0; // in quote currency
@@ -460,6 +466,12 @@ function* clearSpread(exchange: IExchange, symbol: string, orders: OrderLevel[])
 
   // Fetch current order book
   const orderBook: any = yield exchange.getOrderbook(symbol);
+
+  // Check if order book has valid data
+  if (!orderBook || !orderBook.asks || !orderBook.bids || orderBook.asks.length === 0 || orderBook.bids.length === 0) {
+    logger.debug("[LP] Order book is empty or invalid, skipping spread clearing");
+    return;
+  }
 
   // Find all asks between my best bid and my best ask (others selling below my ask)
   const asksToTake = orderBook.asks.filter((ask: any) => ask.price < myBestAsk && ask.price > myBestBid);
@@ -564,6 +576,7 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
     logger.info(
       `[LP] Max spread: ${(bot.settings.maxSpread * 100).toFixed(4)}%, Use tight spread: ${!bot.settings.useMaxSpread ? "enabled" : "disabled"}`,
     );
+    logger.info(`[LP] Clear spread: ${bot.settings.clearSpread ? "enabled" : "disabled"}`);
   }
 
   // Fetch order book if useMaxSpread is enabled
@@ -573,14 +586,22 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
   if (!bot.settings.useMaxSpread) {
     try {
       const orderBook: any = yield exchange.getOrderbook(symbol);
-      bestBid = orderBook.bids[0]?.price;
-      bestAsk = orderBook.asks[0]?.price;
+
+      // Safely access best bid and ask with null checks
+      if (orderBook && orderBook.bids && orderBook.bids.length > 0) {
+        bestBid = orderBook.bids[0]?.price;
+      }
+      if (orderBook && orderBook.asks && orderBook.asks.length > 0) {
+        bestAsk = orderBook.asks[0]?.price;
+      }
 
       if (bestBid && bestAsk) {
         const marketSpread = ((bestAsk - bestBid) / adjustedPrice) * 100;
         logger.info(
           `[LP] Market spread: ${marketSpread.toFixed(4)}% (Bid: ${bestBid.toFixed(bot.settings.pricePrecision)}, Ask: ${bestAsk.toFixed(bot.settings.pricePrecision)})`,
         );
+      } else {
+        logger.warn("[LP] Order book is empty, using maxSpread for all orders");
       }
     } catch (error) {
       logger.warn(
@@ -611,8 +632,10 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
     // Analyze order book depth between bot's best bid and ask
     yield* analyzeOrderBookDepth(exchange, symbol, orders);
 
-    // Clear spread by taking orders between bot's best bid and ask
-    yield* clearSpread(exchange, symbol, orders);
+    // Clear spread by taking orders between bot's best bid and ask (if enabled)
+    if (bot.settings.clearSpread) {
+      yield* clearSpread(exchange, symbol, orders);
+    }
 
     // Log price tracking info
     logger.info(

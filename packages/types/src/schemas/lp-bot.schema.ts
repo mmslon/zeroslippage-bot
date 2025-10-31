@@ -28,6 +28,7 @@ export const ZBalanceProtection = z.object({
 export const ZLPBotSettings = z.object({
   maxSpread: z.number(),
   useMaxSpread: z.boolean(),
+  clearSpread: z.boolean().optional().default(false),
   pricePrecision: z.number().optional().default(2),
   exchangeSource: ZExchangeSourceSchema,
   supportBid: ZSupportOrderSchema.optional(),
