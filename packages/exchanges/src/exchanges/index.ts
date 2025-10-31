@@ -12,6 +12,8 @@ export const exchanges: Record<ExchangeCode, ReturnType<typeof createExchange>> 
   [ExchangeCode.GATEIO]: createExchange(ExchangeCode.GATEIO),
   [ExchangeCode.XT]: createExchange(ExchangeCode.XT),
   [ExchangeCode.BITMART]: createExchange(ExchangeCode.BITMART),
+  [ExchangeCode.MEXC]: createExchange(ExchangeCode.MEXC),
+  [ExchangeCode.HYPERLIQUID]: createExchange(ExchangeCode.HYPERLIQUID),
 } as const;
 
 export { exchangeCodeMapCCXT };

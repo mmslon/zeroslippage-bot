@@ -22,6 +22,8 @@ export const ExchangeCode = {
   BITGET: "BITGET",
   XT: "XT",
   BITMART: "BITMART",
+  MEXC: "MEXC",
+  HYPERLIQUID: "HYPERLIQUID",
 } as const;
 
 export type ExchangeCode = (typeof ExchangeCode)[keyof typeof ExchangeCode];
