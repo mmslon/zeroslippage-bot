@@ -148,9 +148,10 @@ export class ExchangeAccountProcessor {
       });
       return exchangeOrder;
     } catch (err) {
+      // Handle Bybit's limitation - orders outside the last 500 can't be fetched
       if (err instanceof ArgumentsRequired) {
         logger.warn(
-          `Order ${order.id}:${order.exchangeOrderId} cannot be fetched from exchange: ${err.message}. Order may be outside the last 500 orders.`,
+          `Order ${order.id}:${order.exchangeOrderId} cannot be fetched from exchange: ${err.message}. Treating as not found.`,
         );
         throw new OrderNotFound(`Order ${order.exchangeOrderId} not accessible on exchange`);
       }

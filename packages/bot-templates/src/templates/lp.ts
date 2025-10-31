@@ -446,24 +446,30 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
     // Check for filled or missing orders and replace them immediately
     const indicesToReplace: number[] = [];
 
-    for (let index = 0; index < orders.length; index++) {
-      const smartTrade: SmartTradeService = yield useSmartTrade(
-        {
-          entry: {
-            type: orders[index].type,
-            side: orders[index].side,
-            price: orders[index].price,
-            status: "Idle",
+    try {
+      for (let index = 0; index < orders.length; index++) {
+        const smartTrade: SmartTradeService = yield useSmartTrade(
+          {
+            entry: {
+              type: orders[index].type,
+              side: orders[index].side,
+              price: orders[index].price,
+              status: "Idle",
+            },
+            quantity: orders[index].quantity,
           },
-          quantity: orders[index].quantity,
-        },
-        `${index}`,
-      );
+          `${index}`,
+        );
 
-      // Check if order was filled or doesn't exist
-      if (smartTrade.isCompleted() || !smartTrade.ref) {
-        indicesToReplace.push(index);
+        // Check if order was filled or doesn't exist
+        if (smartTrade.isCompleted() || !smartTrade.ref) {
+          indicesToReplace.push(index);
+        }
       }
+    } catch (error) {
+      // Log the error but continue - don't crash the bot
+      logger.warn(`[LP] Error checking order status: ${error instanceof Error ? error.message : String(error)}`);
+      logger.warn("[LP] Continuing with partial order check results");
     }
 
     // Replace all filled or missing orders
