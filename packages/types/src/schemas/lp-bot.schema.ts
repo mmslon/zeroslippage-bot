@@ -19,6 +19,12 @@ export const ZSupportOrderSchema = z.object({
   amount: z.number(),
 });
 
+export const ZBalanceProtection = z.object({
+  enabled: z.boolean().default(true),
+  quoteAssetMinBalabce: z.number().min(0).optional(),
+  baseAssetMinBalance: z.number().min(0).optional(),
+});
+
 export const ZLPBotSettings = z.object({
   maxSpread: z.number(),
   useMaxSpread: z.boolean(),
@@ -28,8 +34,7 @@ export const ZLPBotSettings = z.object({
   supportAsk: ZSupportOrderSchema.optional(),
   bids: ZOrdersSchema,
   asks: ZOrdersSchema,
-  tokensBalanceThreshold: z.number().optional(),
-  usdtBalanceThreshold: z.number().optional(),
+  balanceProtection: ZBalanceProtection,
 });
 
 export type TLPBotSettings = z.infer<typeof ZLPBotSettings>;

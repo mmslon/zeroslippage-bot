@@ -14,11 +14,25 @@ import {
 import { logger } from "@opentrader/logger";
 import { usePriceSource } from "@opentrader/bot-processor/effects/useSource.js";
 
+// Constants
+const DEFAULT_UPDATE_INTERVAL_MS = 3000;
+
 type OrderLevel = {
   type: XOrderType;
   side: XOrderSide;
   price: number;
   quantity: number;
+};
+
+type Balances = {
+  base: { total: number; available: number; currency: string };
+  quote: { total: number; available: number; currency: string };
+};
+
+type BalanceCheckResult = {
+  balances: Balances;
+  shouldStop: boolean;
+  stopReason?: string;
 };
 
 /**
@@ -90,30 +104,76 @@ function computeAllOrders(
 }
 
 /**
- * Selects a random subset of indices from the regular orders only (excluding support orders).
- * Returns at least 1 and at most all regular order indices.
+ * Gets the next order index to update, cycling through all regular orders sequentially.
+ * Returns the next index and updates the current index counter.
  */
-function getRandomOrderIndices(regularOrderCount: number, supportOrderIndices: number[]): number[] {
-  if (regularOrderCount === 0) return [];
+function getNextOrderIndex(
+  regularOrderCount: number,
+  supportOrderIndices: number[],
+  currentIndex: number,
+): { nextIndex: number; newCurrentIndex: number } {
+  if (regularOrderCount === 0) return { nextIndex: -1, newCurrentIndex: 0 };
 
-  // Select between 1 and regularOrderCount (at least 1, at most all regular orders)
-  const countToReplace = Math.floor(Math.random() * regularOrderCount) + 1;
+  // Use the current index and increment for next time
+  const nextIndex = currentIndex % regularOrderCount;
+  const newCurrentIndex = (currentIndex + 1) % regularOrderCount;
 
-  // Create array of only regular order indices (excluding support orders)
-  const allIndices = Array.from({ length: regularOrderCount }, (_, i) => i);
+  return { nextIndex, newCurrentIndex };
+}
 
-  // Shuffle and take the first countToReplace elements
-  const shuffled = allIndices.sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, countToReplace).sort((a, b) => a - b);
+/**
+ * Validates and deducts balance for an order if balance protection is enabled.
+ * Returns true if the order can be placed, false otherwise.
+ */
+function validateAndDeductBalance(
+  order: OrderLevel,
+  index: number,
+  bot: LPBotConfig | undefined,
+  balances: Balances | undefined,
+): boolean {
+  if (!bot || !balances) {
+    return true;
+  }
+
+  const { shouldPlace, reason } = shouldPlaceOrder(order, bot, balances);
+  if (!shouldPlace) {
+    logger.warn(`[LP] Skipping order ${index} due to balance protection: ${reason}`);
+    return false;
+  }
+
+  // Deduct the order amount from available balance for subsequent checks
+  if (order.side === "Sell") {
+    balances.base.available -= order.quantity;
+  } else if (order.side === "Buy") {
+    balances.quote.available -= order.quantity * order.price;
+  }
+
+  return true;
 }
 
 /**
  * Places or replaces smart trades for all orders.
  */
-function* placeOrders(orders: OrderLevel[], indicesToReplace?: number[]) {
+function* placeOrders(orders: OrderLevel[], indicesToReplace?: number[], bot?: LPBotConfig, balances?: Balances) {
   const shouldReplaceOrder = (index: number) => !indicesToReplace || indicesToReplace.includes(index);
 
+  // Create a mutable copy of balances for tracking
+  const currentBalances = balances
+    ? {
+        base: { ...balances.base },
+        quote: { ...balances.quote },
+      }
+    : undefined;
+
   for (const [index, order] of orders.entries()) {
+    // Check balance protection if enabled
+    if (shouldReplaceOrder(index)) {
+      const canPlace = validateAndDeductBalance(order, index, bot, currentBalances);
+      if (!canPlace) {
+        continue;
+      }
+    }
+
     const smartTrade: SmartTradeService = yield useSmartTrade(
       {
         entry: {
@@ -146,8 +206,14 @@ function* cancelSpecificOrders(indicesToCancel: number[]) {
 
 /**
  * Checks and logs account balances including tokens locked in open orders.
+ * Returns balance information and a flag indicating if the bot should stop due to low balance.
  */
-function* checkBalances(exchange: IExchange, symbol: string, orders: OrderLevel[]) {
+function* checkBalances(
+  exchange: IExchange,
+  symbol: string,
+  orders: OrderLevel[],
+  bot: LPBotConfig,
+): Generator<any, BalanceCheckResult, any> {
   const { baseCurrency, quoteCurrency } = decomposeSymbol(symbol);
 
   // Get account assets
@@ -159,22 +225,77 @@ function* checkBalances(exchange: IExchange, symbol: string, orders: OrderLevel[
   const availableBase = baseAsset?.balance || 0;
   const availableQuote = quoteAsset?.balance || 0;
 
-  const totalBase = availableBase;
-  const totalQuote = availableQuote;
-
   logger.info(`[LP] Balance - ${baseCurrency}: ${availableBase.toFixed(2)}`);
   logger.info(`[LP] Balance - ${quoteCurrency}: ${availableQuote.toFixed(2)}`);
 
-  return {
-    base: { total: totalBase },
-    quote: { total: totalQuote },
+  const balances = {
+    base: { total: availableBase, available: availableBase, currency: baseCurrency },
+    quote: { total: availableQuote, available: availableQuote, currency: quoteCurrency },
   };
+
+  // Check if bot should stop due to low balance
+  if (bot.settings.balanceProtection.enabled) {
+    const minBase = bot.settings.balanceProtection.baseAssetMinBalance || 0;
+    const minQuote = bot.settings.balanceProtection.quoteAssetMinBalabce || 0;
+
+    if (availableBase < minBase) {
+      return {
+        balances,
+        shouldStop: true,
+        stopReason: `Total ${baseCurrency} balance (${availableBase.toFixed(2)}) is below minimum threshold (${minBase})`,
+      };
+    }
+
+    if (availableQuote < minQuote) {
+      return {
+        balances,
+        shouldStop: true,
+        stopReason: `Total ${quoteCurrency} balance (${availableQuote.toFixed(2)}) is below minimum threshold (${minQuote})`,
+      };
+    }
+  }
+
+  return { balances, shouldStop: false };
+}
+
+/**
+ * Filters orders based on balance protection settings.
+ * Returns true if the order should be placed, false if it should be skipped due to insufficient balance.
+ */
+function shouldPlaceOrder(
+  order: OrderLevel,
+  bot: LPBotConfig,
+  balances: Balances,
+): { shouldPlace: boolean; reason?: string } {
+  const { balanceProtection } = bot.settings;
+
+  // If balance protection is disabled, place all orders
+  if (!balanceProtection.enabled) {
+    return { shouldPlace: true };
+  }
+
+  const isSellOrder = order.side === "Sell";
+  const currency = isSellOrder ? balances.base : balances.quote;
+  const requiredAmount = isSellOrder ? order.quantity : order.quantity * order.price;
+  const minBalance = isSellOrder
+    ? balanceProtection.baseAssetMinBalance || 0
+    : balanceProtection.quoteAssetMinBalabce || 0;
+  const balanceAfterOrder = currency.available - requiredAmount;
+
+  if (balanceAfterOrder < minBalance) {
+    return {
+      shouldPlace: false,
+      reason: `Insufficient ${currency.currency} balance. Available: ${currency.available.toFixed(2)}, Required: ${requiredAmount.toFixed(2)}, Min protected: ${minBalance.toFixed(2)}`,
+    };
+  }
+
+  return { shouldPlace: true };
 }
 
 /**
  * Calculates and logs the sum of all orders in the order book between bot's best bid and ask.
  */
-function* analyzeOrderBookDepth(exchange: IExchange, symbol: string, orders: OrderLevel[]) {
+function* analyzeOrderBookDepth(exchange: IExchange, symbol: string, orders: OrderLevel[]): Generator<any, any, any> {
   const { quoteCurrency } = decomposeSymbol(symbol);
 
   // Find bot's best bid and ask prices
@@ -222,13 +343,13 @@ function* analyzeOrderBookDepth(exchange: IExchange, symbol: string, orders: Ord
 
   logger.info(`[LP] Order book depth between ${bestBid.toFixed(2)} and ${bestAsk.toFixed(2)} ${quoteCurrency}:`);
   logger.info(
-    `[LP]   Bids: ${bidOrderCount} orders, ${totalBidVolume} volume, ${totalBidValue} ${quoteCurrency} value`,
+    `[LP]   Bids: ${bidOrderCount} orders, ${totalBidVolume.toFixed(2)} volume, ${totalBidValue.toFixed(2)} ${quoteCurrency} value`,
   );
   logger.info(
-    `[LP]   Asks: ${askOrderCount} orders, ${totalAskVolume} volume, ${totalAskValue} ${quoteCurrency} value`,
+    `[LP]   Asks: ${askOrderCount} orders, ${totalAskVolume.toFixed(2)} volume, ${totalAskValue.toFixed(2)} ${quoteCurrency} value`,
   );
   logger.info(
-    `[LP]   Total: ${bidOrderCount + askOrderCount} orders, ${totalVolume} volume, ${totalValue} ${quoteCurrency} value`,
+    `[LP]   Total: ${bidOrderCount + askOrderCount} orders, ${totalVolume.toFixed(2)} volume, ${totalValue.toFixed(2)} ${quoteCurrency} value`,
   );
 
   return {
@@ -258,42 +379,101 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
   const exchange: IExchange = yield useExchange();
   const priceFromSource: { price: number } = yield usePriceSource(bot.settings.exchangeSource);
 
+  // Apply price coefficient to the source price
+  const adjustedPrice = priceFromSource.price * (bot.settings.exchangeSource.priceCoefficient || 1);
+
   // Log bot start
   if (onStart) {
     const { price: markPrice }: IGetMarketPriceResponse = yield exchange.getMarketPrice({ symbol });
-    logger.info(`[LP] Bot started on ${symbol} pair. Current price is ${markPrice} ${quoteCurrency}`);
+    logger.info(
+      `[LP] Bot started on ${symbol} pair. Current price is ${markPrice.toFixed(bot.settings.pricePrecision)} ${quoteCurrency}`,
+    );
+    logger.info(
+      `[LP] Using price source: ${bot.settings.exchangeSource.pair} on ${bot.settings.exchangeSource.exchange} (coefficient: ${bot.settings.exchangeSource.priceCoefficient || 1})`,
+    );
+    logger.info(
+      `[LP] Source price: ${priceFromSource.price.toFixed(bot.settings.pricePrecision)}, Adjusted price: ${adjustedPrice.toFixed(bot.settings.pricePrecision)}`,
+    );
+
+    // Log balance protection settings
+    if (bot.settings.balanceProtection.enabled) {
+      const { baseCurrency } = decomposeSymbol(symbol);
+      const minBase = bot.settings.balanceProtection.baseAssetMinBalance || 0;
+      const minQuote = bot.settings.balanceProtection.quoteAssetMinBalabce || 0;
+      logger.info(
+        `[LP] Balance protection enabled - Min ${baseCurrency}: ${minBase}, Min ${quoteCurrency}: ${minQuote}`,
+      );
+    } else {
+      logger.info("[LP] Balance protection disabled");
+    }
   }
 
   // Compute all orders
-  const { all: orders, regularOrderCount, supportOrderIndices } = computeAllOrders(bot, priceFromSource.price);
+  const { all: orders, regularOrderCount, supportOrderIndices } = computeAllOrders(bot, adjustedPrice);
 
-  // Handle interval updates - cancel and replace random subset of orders
+  // Handle interval updates - cancel and replace one order at a time, cycling through all orders
   if (ctx.event === StrategyEventType.onInterval) {
     // Check balances including locked tokens
-    yield* checkBalances(exchange, symbol, orders);
+    const { balances, shouldStop, stopReason } = yield* checkBalances(exchange, symbol, orders, bot);
+
+    // Stop bot if balance is below threshold
+    if (shouldStop) {
+      logger.error(`[LP] Stopping bot: ${stopReason}`);
+      yield cancelAllTrades();
+      return;
+    }
 
     // Analyze order book depth between bot's best bid and ask
     yield* analyzeOrderBookDepth(exchange, symbol, orders);
 
-    const indicesToReplace = getRandomOrderIndices(regularOrderCount, supportOrderIndices);
-    const percentageToReplace = ((indicesToReplace.length / regularOrderCount) * 100).toFixed(1);
-
+    // Log price tracking info
     logger.info(
-      `[LP] Updating ${indicesToReplace.length}/${regularOrderCount} regular orders (${percentageToReplace}%) on ${symbol} pair (${supportOrderIndices.length} support orders excluded)`,
+      `[LP] Source price: ${priceFromSource.price.toFixed(bot.settings.pricePrecision)}, Adjusted price: ${adjustedPrice.toFixed(bot.settings.pricePrecision)} (coeff: ${bot.settings.exchangeSource.priceCoefficient || 1})`,
     );
 
-    yield* cancelSpecificOrders(indicesToReplace);
-    yield* placeOrders(orders, indicesToReplace);
+    // Initialize or retrieve current order index from bot state
+    const currentOrderIndex = (ctx.state?.currentOrderIndex as number) || 0;
+
+    // Get next order to update
+    const { nextIndex, newCurrentIndex } = getNextOrderIndex(regularOrderCount, supportOrderIndices, currentOrderIndex);
+
+    if (nextIndex >= 0) {
+      const cycleProgress = `${nextIndex + 1}/${regularOrderCount}`;
+      const cycleStatus = newCurrentIndex === 0 ? " (cycle complete, restarting)" : "";
+
+      logger.info(
+        `[LP] Updating order ${nextIndex} (${cycleProgress})${cycleStatus} on ${symbol} pair (${supportOrderIndices.length} support orders excluded)`,
+      );
+
+      yield* cancelSpecificOrders([nextIndex]);
+      yield* placeOrders(orders, [nextIndex], bot, balances);
+
+      // Update state with new index for next interval
+      ctx.state.currentOrderIndex = newCurrentIndex;
+    }
 
     return;
   }
 
   // Initial placement of all orders
   logger.info(`[LP] Placing ${orders.length} initial orders`);
-  yield* placeOrders(orders);
+
+  // Check balances for initial placement with balance protection
+  const { balances, shouldStop, stopReason } = yield* checkBalances(exchange, symbol, orders, bot);
+
+  // Stop bot if balance is below threshold
+  if (shouldStop) {
+    logger.error(`[LP] Cannot start bot: ${stopReason}`);
+    return;
+  }
+
+  yield* placeOrders(orders, undefined, bot, balances);
+
+  // Initialize state for sequential order updates
+  ctx.state.currentOrderIndex = 0;
 }
 
-lpBot.interval = 30 * 1000;
+lpBot.interval = DEFAULT_UPDATE_INTERVAL_MS;
 lpBot.displayName = "Liquidity Provider Bot";
 lpBot.hidden = true;
 lpBot.schema = ZLPBotSettings;
