@@ -21,4 +21,6 @@ export const exchangeCodeMapCCXT: Record<ExchangeCode, keyof typeof ccxt> = {
   [ExchangeCode.GATEIO]: "gateio",
   [ExchangeCode.XT]: "xt",
   [ExchangeCode.BITMART]: "bitmart",
+  [ExchangeCode.MEXC]: "mexc",
+  [ExchangeCode.HYPERLIQUID]: "hyperliquid",
 };
