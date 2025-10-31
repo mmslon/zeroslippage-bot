@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { IExchange } from "@opentrader/exchanges";
 import type { BotTemplate, IBotConfiguration, SmartTradeService, TBotContext } from "@opentrader/bot-processor";
 import { cancelAllTrades, cancelSmartTrade, useExchange, useSmartTrade } from "@opentrader/bot-processor";
-import { computeOrderLevelsFromCurrentPrice, decomposeSymbol } from "@opentrader/tools";
+import { decomposeSymbol } from "@opentrader/tools";
 import {
   StrategyEventType,
   ZLPBotSettings,
@@ -34,6 +34,45 @@ type BalanceCheckResult = {
   shouldStop: boolean;
   stopReason?: string;
 };
+
+/**
+ * Computes order levels for one side only (asks OR bids).
+ */
+function computeOneSidedOrders(
+  levels: number,
+  minOrderAmount: number,
+  maxOrderAmount: number,
+  initialSpread: number,
+  levelSpread: number,
+  sourcePrice: number,
+  pricePrecision: number,
+  side: "Buy" | "Sell",
+): OrderLevel[] {
+  const orders: OrderLevel[] = [];
+
+  for (let i = 0; i < levels; i++) {
+    // Generate random quantity between min and max
+    const quantity = Math.random() * (maxOrderAmount - minOrderAmount) + minOrderAmount;
+
+    // Calculate spread (already in decimal format)
+    const spreadDecimal = initialSpread + i * levelSpread;
+
+    // Calculate price based on side
+    const price = side === "Sell" ? sourcePrice * (1 + spreadDecimal) : sourcePrice * (1 - spreadDecimal);
+
+    // Round price to specified precision
+    const roundedPrice = Number(price.toFixed(pricePrecision));
+
+    orders.push({
+      side,
+      type: "Limit",
+      price: roundedPrice,
+      quantity,
+    });
+  }
+
+  return orders;
+}
 
 /**
  * Computes all order levels including regular grid orders and support orders.
@@ -77,7 +116,7 @@ function computeAllOrders(
     }
   }
 
-  const asks = computeOrderLevelsFromCurrentPrice(
+  const asks = computeOneSidedOrders(
     bot.settings.asks.levels,
     bot.settings.asks.minOrderAmount,
     bot.settings.asks.maxOrderAmount,
@@ -85,9 +124,10 @@ function computeAllOrders(
     bot.settings.asks.levelSpread,
     sourcePrice,
     bot.settings.pricePrecision,
+    "Sell",
   );
 
-  const bids = computeOrderLevelsFromCurrentPrice(
+  const bids = computeOneSidedOrders(
     bot.settings.bids.levels,
     bot.settings.bids.minOrderAmount,
     bot.settings.bids.maxOrderAmount,
@@ -95,9 +135,8 @@ function computeAllOrders(
     bot.settings.bids.levelSpread,
     sourcePrice,
     bot.settings.pricePrecision,
-  );
-
-  // Track regular order count before adding support orders
+    "Buy",
+  ); // Track regular order count before adding support orders
   const regularOrderCount = asks.length + bids.length;
   const supportOrderIndices: number[] = [];
 
