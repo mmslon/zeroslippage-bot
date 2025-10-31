@@ -1,4 +1,4 @@
-import { OrderNotFound } from "ccxt";
+import { OrderNotFound, ArgumentsRequired } from "ccxt";
 import type { ExchangeAccountWithCredentials, OrderWithSmartTrade } from "@opentrader/db";
 import { xprisma } from "@opentrader/db";
 import { exchangeProvider, type IExchange } from "@opentrader/exchanges";
@@ -140,11 +140,22 @@ export class ExchangeAccountProcessor {
     logger.warn(
       `Order ${order.id}:${order.exchangeOrderId} not found in Open/Closed orders list. Fetching from exchange.`,
     );
-    const exchangeOrder = await this.exchange.getLimitOrder({
-      symbol,
-      orderId: order.exchangeOrderId!, // @todo assertHasExchangeOrderId
-    });
-    return exchangeOrder;
+    
+    try {
+      const exchangeOrder = await this.exchange.getLimitOrder({
+        symbol,
+        orderId: order.exchangeOrderId!, // @todo assertHasExchangeOrderId
+      });
+      return exchangeOrder;
+    } catch (err) {
+      if (err instanceof ArgumentsRequired) {
+        logger.warn(
+          `Order ${order.id}:${order.exchangeOrderId} cannot be fetched from exchange: ${err.message}. Order may be outside the last 500 orders.`,
+        );
+        throw new OrderNotFound(`Order ${order.exchangeOrderId} not accessible on exchange`);
+      }
+      throw err;
+    }
   }
 
   private async findFromCache(order: OrderWithSmartTrade) {
