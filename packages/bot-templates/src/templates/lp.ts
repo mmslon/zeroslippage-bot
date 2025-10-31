@@ -15,7 +15,7 @@ import { logger } from "@opentrader/logger";
 import { usePriceSource } from "@opentrader/bot-processor/effects/useSource.js";
 
 // Constants
-const DEFAULT_UPDATE_INTERVAL_MS = 3000;
+const DEFAULT_UPDATE_INTERVAL_MS = 1000;
 
 type OrderLevel = {
   type: XOrderType;
@@ -187,8 +187,20 @@ function* placeOrders(orders: OrderLevel[], indicesToReplace?: number[], bot?: L
       `${index}`,
     );
 
-    if (smartTrade.isCompleted() && shouldReplaceOrder(index)) {
-      yield smartTrade.replace();
+    // Replace order if it should be replaced and either:
+    // - It's completed (filled), so we create a new one
+    // - It exists but isn't completed, so we cancel and replace it
+    if (shouldReplaceOrder(index)) {
+      if (smartTrade.isCompleted()) {
+        // Order was filled, create a new one
+        yield smartTrade.replace();
+      } else if (smartTrade.ref) {
+        // Order exists but wasn't filled, cancel and replace it
+        yield smartTrade.replace();
+      } else {
+        // Order doesn't exist, just create it (this handles the first placement)
+        yield smartTrade.replace();
+      }
     }
   }
 }
@@ -431,25 +443,61 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
       `[LP] Source price: ${priceFromSource.price.toFixed(bot.settings.pricePrecision)}, Adjusted price: ${adjustedPrice.toFixed(bot.settings.pricePrecision)} (coeff: ${bot.settings.exchangeSource.priceCoefficient || 1})`,
     );
 
-    // Initialize or retrieve current order index from bot state
-    const currentOrderIndex = (ctx.state?.currentOrderIndex as number) || 0;
+    // Check for filled or missing orders and replace them immediately
+    const indicesToReplace: number[] = [];
 
-    // Get next order to update
-    const { nextIndex, newCurrentIndex } = getNextOrderIndex(regularOrderCount, supportOrderIndices, currentOrderIndex);
-
-    if (nextIndex >= 0) {
-      const cycleProgress = `${nextIndex + 1}/${regularOrderCount}`;
-      const cycleStatus = newCurrentIndex === 0 ? " (cycle complete, restarting)" : "";
-
-      logger.info(
-        `[LP] Updating order ${nextIndex} (${cycleProgress})${cycleStatus} on ${symbol} pair (${supportOrderIndices.length} support orders excluded)`,
+    for (let index = 0; index < orders.length; index++) {
+      const smartTrade: SmartTradeService = yield useSmartTrade(
+        {
+          entry: {
+            type: orders[index].type,
+            side: orders[index].side,
+            price: orders[index].price,
+            status: "Idle",
+          },
+          quantity: orders[index].quantity,
+        },
+        `${index}`,
       );
 
-      yield* cancelSpecificOrders([nextIndex]);
-      yield* placeOrders(orders, [nextIndex], bot, balances);
+      // Check if order was filled or doesn't exist
+      if (smartTrade.isCompleted() || !smartTrade.ref) {
+        indicesToReplace.push(index);
+      }
+    }
 
-      // Update state with new index for next interval
-      ctx.state.currentOrderIndex = newCurrentIndex;
+    // Replace all filled or missing orders
+    if (indicesToReplace.length > 0) {
+      logger.info(
+        `[LP] Detected ${indicesToReplace.length} filled/missing orders at indices: [${indicesToReplace.join(", ")}]. Replacing immediately.`,
+      );
+      yield* placeOrders(orders, indicesToReplace, bot, balances);
+    } else {
+      // If no filled orders, continue with regular cycle-based update
+      // Initialize or retrieve current order index from bot state
+      const currentOrderIndex = (ctx.state?.currentOrderIndex as number) || 0;
+
+      // Get next order to update
+      const { nextIndex, newCurrentIndex } = getNextOrderIndex(
+        regularOrderCount,
+        supportOrderIndices,
+        currentOrderIndex,
+      );
+
+      if (nextIndex >= 0) {
+        const cycleProgress = `${nextIndex + 1}/${regularOrderCount}`;
+        const cycleStatus = newCurrentIndex === 0 ? " (cycle complete, restarting)" : "";
+
+        logger.info(
+          `[LP] Updating order ${nextIndex} (${cycleProgress})${cycleStatus} on ${symbol} pair (${supportOrderIndices.length} support orders excluded)`,
+        );
+
+        yield* cancelSpecificOrders([nextIndex]);
+        yield* placeOrders(orders, [nextIndex], bot, balances);
+
+        // Update state with new index for next interval
+        ctx.state.currentOrderIndex = newCurrentIndex;
+      }
     }
 
     return;
