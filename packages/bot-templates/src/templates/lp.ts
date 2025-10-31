@@ -41,6 +41,8 @@ type BalanceCheckResult = {
 function computeAllOrders(
   bot: LPBotConfig,
   sourcePrice: number,
+  bestBid?: number,
+  bestAsk?: number,
 ): {
   asks: OrderLevel[];
   bids: OrderLevel[];
@@ -48,11 +50,38 @@ function computeAllOrders(
   regularOrderCount: number;
   supportOrderIndices: number[];
 } {
+  // Determine initial spread based on useMaxSpread setting
+  let initialAskSpread = bot.settings.maxSpread;
+  let initialBidSpread = bot.settings.maxSpread;
+
+  if (!bot.settings.useMaxSpread && bestBid && bestAsk) {
+    // Calculate current market spread
+    const marketSpread = (bestAsk - bestBid) / sourcePrice;
+    const maxSpreadDecimal = bot.settings.maxSpread;
+
+    // Try to place orders at best available prices, but don't exceed maxSpread
+    if (marketSpread <= maxSpreadDecimal) {
+      // Market spread is acceptable, try to match or slightly improve it
+      initialAskSpread = Math.max((bestAsk - sourcePrice) / sourcePrice, 0);
+      initialBidSpread = Math.max((sourcePrice - bestBid) / sourcePrice, 0);
+      logger.info(
+        `[LP] Using tight spread - Ask: ${(initialAskSpread * 100).toFixed(4)}%, Bid: ${(initialBidSpread * 100).toFixed(4)}%`,
+      );
+    } else {
+      // Market spread is too large, use maxSpread instead
+      initialAskSpread = maxSpreadDecimal;
+      initialBidSpread = maxSpreadDecimal;
+      logger.info(
+        `[LP] Market spread (${(marketSpread * 100).toFixed(4)}%) exceeds maxSpread (${(maxSpreadDecimal * 100).toFixed(4)}%), using maxSpread`,
+      );
+    }
+  }
+
   const asks = computeOrderLevelsFromCurrentPrice(
     bot.settings.asks.levels,
     bot.settings.asks.minOrderAmount,
     bot.settings.asks.maxOrderAmount,
-    bot.settings.maxSpread,
+    initialAskSpread,
     bot.settings.asks.levelSpread,
     sourcePrice,
     bot.settings.pricePrecision,
@@ -62,7 +91,7 @@ function computeAllOrders(
     bot.settings.bids.levels,
     bot.settings.bids.minOrderAmount,
     bot.settings.bids.maxOrderAmount,
-    bot.settings.maxSpread,
+    initialBidSpread,
     bot.settings.bids.levelSpread,
     sourcePrice,
     bot.settings.pricePrecision,
@@ -375,6 +404,79 @@ function* analyzeOrderBookDepth(exchange: IExchange, symbol: string, orders: Ord
 }
 
 /**
+ * Clears the spread by executing market orders to consume orders between bot's best bid and ask.
+ */
+function* clearSpread(exchange: IExchange, symbol: string, orders: OrderLevel[]): Generator<any, any, any> {
+  // Find bot's best bid and ask prices
+  const botBids = orders.filter((o) => o.side === "Buy");
+  const botAsks = orders.filter((o) => o.side === "Sell");
+
+  if (botBids.length === 0 || botAsks.length === 0) {
+    logger.debug("[LP] No bid or ask orders to clear spread");
+    return;
+  }
+
+  const myBestBid = Math.max(...botBids.map((o) => o.price));
+  const myBestAsk = Math.min(...botAsks.map((o) => o.price));
+
+  // Fetch current order book
+  const orderBook: any = yield exchange.getOrderbook(symbol);
+
+  // Find all asks between my best bid and my best ask (others selling below my ask)
+  const asksToTake = orderBook.asks.filter((ask: any) => ask.price < myBestAsk && ask.price > myBestBid);
+
+  // Find all bids between my best bid and my best ask (others buying above my bid)
+  const bidsToTake = orderBook.bids.filter((bid: any) => bid.price > myBestBid && bid.price < myBestAsk);
+
+  if (asksToTake.length === 0 && bidsToTake.length === 0) {
+    logger.debug("[LP] No orders to clear in spread");
+    return;
+  }
+
+  // Calculate total volume to take
+  const totalAsksVolume = asksToTake.reduce((sum: number, ask: any) => sum + ask.quantity, 0);
+  const totalBidsVolume = bidsToTake.reduce((sum: number, bid: any) => sum + bid.quantity, 0);
+
+  logger.info(
+    `[LP] Clearing spread between ${myBestBid.toFixed(2)} and ${myBestAsk.toFixed(2)}: ${asksToTake.length} asks (${totalAsksVolume.toFixed(4)} volume), ${bidsToTake.length} bids (${totalBidsVolume.toFixed(4)} volume)`,
+  );
+
+  // Take asks (buy them) - orders selling below my ask price
+  for (const ask of asksToTake) {
+    try {
+      logger.info(`[LP] Buying ${ask.quantity.toFixed(4)} at ${ask.price.toFixed(2)} (clearing ask)`);
+      yield exchange.placeOrder({
+        symbol,
+        type: "Market",
+        side: "buy",
+        quantity: ask.quantity,
+      });
+    } catch (error) {
+      logger.warn(
+        `[LP] Failed to clear ask at ${ask.price}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  // Take bids (sell to them) - orders buying above my bid price
+  for (const bid of bidsToTake) {
+    try {
+      logger.info(`[LP] Selling ${bid.quantity.toFixed(4)} at ${bid.price.toFixed(2)} (clearing bid)`);
+      yield exchange.placeOrder({
+        symbol,
+        type: "Market",
+        side: "sell",
+        quantity: bid.quantity,
+      });
+    } catch (error) {
+      logger.warn(
+        `[LP] Failed to clear bid at ${bid.price}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+}
+
+/**
  * Liquidity provider bot template.
  */
 export function* lpBot(ctx: TBotContext<LPBotConfig>) {
@@ -418,10 +520,42 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
     } else {
       logger.info("[LP] Balance protection disabled");
     }
+
+    // Log spread settings
+    logger.info(
+      `[LP] Max spread: ${(bot.settings.maxSpread * 100).toFixed(4)}%, Use tight spread: ${!bot.settings.useMaxSpread ? "enabled" : "disabled"}`,
+    );
+  }
+
+  // Fetch order book if useMaxSpread is enabled
+  let bestBid: number | undefined;
+  let bestAsk: number | undefined;
+
+  if (!bot.settings.useMaxSpread) {
+    try {
+      const orderBook: any = yield exchange.getOrderbook(symbol);
+      bestBid = orderBook.bids[0]?.price;
+      bestAsk = orderBook.asks[0]?.price;
+
+      if (bestBid && bestAsk) {
+        const marketSpread = ((bestAsk - bestBid) / adjustedPrice) * 100;
+        logger.info(
+          `[LP] Market spread: ${marketSpread.toFixed(4)}% (Bid: ${bestBid.toFixed(bot.settings.pricePrecision)}, Ask: ${bestAsk.toFixed(bot.settings.pricePrecision)})`,
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        `[LP] Failed to fetch order book for spread optimization: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   // Compute all orders
-  const { all: orders, regularOrderCount, supportOrderIndices } = computeAllOrders(bot, adjustedPrice);
+  const {
+    all: orders,
+    regularOrderCount,
+    supportOrderIndices,
+  } = computeAllOrders(bot, adjustedPrice, bestBid, bestAsk);
 
   // Handle interval updates - cancel and replace one order at a time, cycling through all orders
   if (ctx.event === StrategyEventType.onInterval) {
@@ -437,6 +571,9 @@ export function* lpBot(ctx: TBotContext<LPBotConfig>) {
 
     // Analyze order book depth between bot's best bid and ask
     yield* analyzeOrderBookDepth(exchange, symbol, orders);
+
+    // Clear spread by taking orders between bot's best bid and ask
+    yield* clearSpread(exchange, symbol, orders);
 
     // Log price tracking info
     logger.info(

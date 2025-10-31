@@ -140,7 +140,7 @@ export class ExchangeAccountProcessor {
     logger.warn(
       `Order ${order.id}:${order.exchangeOrderId} not found in Open/Closed orders list. Fetching from exchange.`,
     );
-    
+
     try {
       const exchangeOrder = await this.exchange.getLimitOrder({
         symbol,
