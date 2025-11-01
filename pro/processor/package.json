@@ -41,7 +41,7 @@
     "@trpc/server": "^10.45.2",
     "@types/express": "^4.17.21",
     "async": "^3.2.5",
-    "ccxt": "4.3.27",
+    "ccxt": "4.5.14",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "date-fns": "^2.30.0",
