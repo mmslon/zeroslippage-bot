@@ -79,7 +79,10 @@ export class CCXTExchange implements IExchange {
           secret: credentials.secretKey,
           password: credentials.password,
           memo: credentials.memo || credentials.password,
-          uid: "Keylabs02",
+          uid: credentials.memo,
+          // HyperLiquid requires wallet address and private key for authentication
+          walletAddress: credentials.walletAddress,
+          privateKey: credentials.privateKey,
         }
       : undefined;
 
