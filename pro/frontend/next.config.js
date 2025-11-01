@@ -20,6 +20,10 @@ module.exports = {
       "utf-8-validate": "commonjs utf-8-validate",
       bufferutil: "commonjs bufferutil",
     });
+    config.resolve.extensionAlias = {
+      ".js": [".js", ".ts"],
+      ".jsx": [".jsx", ".tsx"],
+    };
 
     return config;
   },

@@ -54,5 +54,8 @@
       "prettier --write"
     ]
   },
-  "packageManager": "pnpm@10.12.1"
+  "packageManager": "pnpm@10.12.1",
+  "dependencies": {
+    "protobufjs": "4.1.3"
+  }
 }

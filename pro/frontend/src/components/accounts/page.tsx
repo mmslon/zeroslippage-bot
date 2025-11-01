@@ -12,11 +12,9 @@ export default function AccountsPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
-  const [selectedAccount, setSelectedAccount] =
-    useState<TExchangeAccount | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<TExchangeAccount | null>(null);
 
-  const [exchangeAccounts, { refetch }] =
-    tClient.exchangeAccount.list.useSuspenseQuery();
+  const [exchangeAccounts, { refetch }] = tClient.exchangeAccount.list.useSuspenseQuery();
 
   return (
     <Box>
@@ -31,15 +29,15 @@ export default function AccountsPage() {
         }}
       />
 
-      <CreateAccountDialog
+      {/* <CreateAccountDialog
         onClose={() => {
           setCreateDialogOpen(false);
         }}
         onCreated={() => void refetch()}
         open={createDialogOpen}
-      />
+      /> */}
 
-      {selectedAccount ? (
+      {/* {selectedAccount ? (
         <UpdateAccountDialog
           account={selectedAccount}
           onClose={() => {
@@ -48,7 +46,7 @@ export default function AccountsPage() {
           onCreated={() => void refetch()}
           open={updateDialogOpen}
         />
-      ) : null}
+      ) : null} */}
     </Box>
   );
 }
