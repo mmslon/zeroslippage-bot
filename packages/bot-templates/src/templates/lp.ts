@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { IExchange } from "@opentrader/exchanges";
 import type { BotTemplate, IBotConfiguration, SmartTradeService, TBotContext } from "@opentrader/bot-processor";
-import { cancelAllTrades, cancelSmartTrade, useExchange, useSmartTrade } from "@opentrader/bot-processor";
+import {
+  cancelAllTrades,
+  cancelSmartTrade,
+  useExchange,
+  useSmartTrade,
+  usePriceSource,
+} from "@opentrader/bot-processor";
 import { decomposeSymbol } from "@opentrader/tools";
 import {
   StrategyEventType,
@@ -12,7 +18,6 @@ import {
   type IAccountAsset,
 } from "@opentrader/types";
 import { logger } from "@opentrader/logger";
-import { usePriceSource } from "@opentrader/bot-processor/effects/useSource.js";
 
 // Constants
 const DEFAULT_UPDATE_INTERVAL_MS = 1000;
