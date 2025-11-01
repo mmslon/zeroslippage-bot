@@ -8,6 +8,8 @@ export const ZCreateExchangeAccountInputSchema = zt.ExchangeAccountSchema.pick({
   apiKey: true,
   secretKey: true,
   password: true,
+  privateKey: true,
+  walletAddress: true,
   memo: true,
   isDemoAccount: true,
   isPaperAccount: true,

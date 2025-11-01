@@ -60,6 +60,8 @@ export class ExchangeProvider {
         ...credentials,
         code: credentials.code as ExchangeCode,
         password: credentials.password ?? "",
+        privateKey: credentials.privateKey ?? "",
+        walletAddress: credentials.walletAddress ?? "",
       },
       credentials.isDemoAccount,
     );

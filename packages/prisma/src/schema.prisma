@@ -111,6 +111,8 @@ model ExchangeAccount {
   secretKey      String
   password       String?
   memo           String?
+  privateKey    String?
+  walletAddress String?
   isDemoAccount  Boolean @default(false)
   isPaperAccount Boolean @default(false)
 

@@ -18,6 +18,8 @@ type Options = {
   secret: string;
   password: string | null;
   memo: string | null;
+  privateKey: string | null;
+  walletAddress: string | null;
   /**
    * Is demo account?
    */
@@ -39,6 +41,8 @@ export async function addExchangeAccount(options: Options): Promise<CommandResul
     secretKey: options.secret,
     password: options.password,
     memo: options.memo,
+    privateKey: options.privateKey,
+    walletAddress: options.walletAddress,
     isDemoAccount: options.demo,
     isPaperAccount: options.paper,
   });

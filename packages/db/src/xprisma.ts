@@ -88,6 +88,8 @@ const xprismaClient = prismaClient.$extends({
           apiKey: true,
           secretKey: true,
           password: true,
+          privateKey: true,
+          walletAddress: true,
           isDemoAccount: true,
           isPaperAccount: true,
         },
@@ -97,6 +99,8 @@ const xprismaClient = prismaClient.$extends({
             apiKey: exchangeAccount.apiKey,
             secretKey: exchangeAccount.secretKey,
             password: exchangeAccount.password,
+            privateKey: exchangeAccount.privateKey,
+            walletAddress: exchangeAccount.walletAddress,
             isDemoAccount: exchangeAccount.isDemoAccount,
             isPaperAccount: exchangeAccount.isPaperAccount,
           };

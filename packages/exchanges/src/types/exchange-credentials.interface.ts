@@ -5,6 +5,8 @@ export interface IExchangeCredentials {
   apiKey: string;
   secretKey: string;
   password: string; // or password (depends on the exchange)
+  privateKey?: string;
+  walletAddress?: string;
   isDemoAccount: boolean;
   isPaperAccount: boolean;
   memo?: string;

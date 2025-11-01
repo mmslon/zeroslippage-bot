@@ -10,13 +10,14 @@ export type ExchangeConfig = Pick<
   | "apiKey"
   | "secretKey"
   | "password"
+  | "memo"
+  | "privateKey"
+  | "walletAddress"
   | "exchangeCode"
   | "isDemoAccount"
 >;
 
-export type BotConfig<S = any> = Partial<
-  Pick<Bot, "name" | "type" | "timeframe" | "label">
-> &
+export type BotConfig<S = any> = Partial<Pick<Bot, "name" | "type" | "timeframe" | "label">> &
   Pick<Bot, "template"> & {
     /**
      * Strategy params

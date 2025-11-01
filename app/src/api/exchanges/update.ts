@@ -17,6 +17,9 @@ type Options = {
   key: string;
   secret: string;
   password: string | null;
+  memo: string | null;
+  privateKey: string | null;
+  walletAddress: string | null;
   /**
    * Is demo account?
    */
@@ -26,7 +29,6 @@ type Options = {
    */
   paper: boolean;
 };
-
 
 export async function updateExchangeAccount(options: Options): Promise<CommandResult> {
   const daemonRpc = createDaemonRpcClient();
@@ -48,6 +50,9 @@ export async function updateExchangeAccount(options: Options): Promise<CommandRe
       apiKey: options.key,
       secretKey: options.secret,
       password: options.password,
+      memo: options.memo,
+      privateKey: options.privateKey,
+      walletAddress: options.walletAddress,
       isDemoAccount: options.demo,
       isPaperAccount: options.paper,
     },
