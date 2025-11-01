@@ -1,0 +1,39 @@
+{
+  settings: {
+    pricePrecision: 4,
+    maxSpread: 0.003,
+    useMaxSpread: true,
+    exchangeSource: {
+      pair: "ANON/USDT",
+      exchange: "MEXC",
+      priceCoefficient: 1,
+    },
+    supportBid: {
+      price: 0.5,
+      amount: 20,
+    },
+    supportAsk: {
+      price: 2.0,
+      amount: 20,
+    },
+    bids: {
+      levels: 10,
+      levelSpread: 0.005,
+      minOrderAmount: 15,
+      maxOrderAmount: 20,
+    },
+    asks: {
+      levels: 10,
+      levelSpread: 0.005,
+      minOrderAmount: 15,
+      maxOrderAmount: 20,
+    },
+    balanceProtection: {
+      enabled: false,
+      quoteAssetMinBalabce: 10,
+      baseAssetMinBalance: 10,
+    },
+  },
+  pair: "ANON/USDC",
+  exchange: "HYPERLIQUID", // specify exchange credentials in the exchanges.json5 config using this key
+}
